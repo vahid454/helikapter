@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "604881404495",
+    "project_id": "helikapter-1f37f",
+    "storage_bucket": "helikapter-1f37f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:604881404495:android:fa5d7be6d329aaf94c603a",
+        "android_client_info": {
+          "package_name": "com.android.helikapter"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAgYJ0aTsHkf5OuMaqRt6hz4mcpiZUeJOM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
