@@ -1,6 +1,8 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:confetti/confetti.dart';
+import 'package:audioplayers/audioplayers.dart';
 
 class GameScreen extends StatefulWidget {
   const GameScreen({super.key});
@@ -22,10 +24,18 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
   double _balance = 10000; // Initial balance
   bool _hasStarted = false;
 
+  bool _autoBetEnabled = false;
+  List<double> _recentCrashes = [];
+  List<bool> _recentWins = [];
+
+  late ConfettiController _confettiController;
+  final AudioPlayer _audioPlayer = AudioPlayer();
+
   @override
   void initState() {
     super.initState();
     _ticker = createTicker(_updateGame);
+    _confettiController = ConfettiController(duration: const Duration(seconds: 2));
   }
 
   @override
@@ -43,8 +53,8 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
       _multiplier = double.parse((1 + _elapsed * 0.25).toStringAsFixed(2));
 
       final trigger = double.tryParse(_triggerController.text);
-      if (_isRunning && !_isCrashed && trigger != null && _multiplier >= trigger && _autoCashOutEnabled) {
-        _cashOut(); // Auto cash out
+      if (_isRunning && !_isCrashed && _autoCashOutEnabled && trigger != null && _multiplier >= trigger) {
+        _cashOut();
       }
 
       if (_multiplier >= (_sessionCrashPoint ?? 0)) {
@@ -52,8 +62,29 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
         _isRunning = false;
         _ticker.stop();
 
+        final bet = double.tryParse(_betController.text);
+        bool won = false;
+        if (bet != null && _autoCashOutEnabled) {
+          final trigger = double.tryParse(_triggerController.text);
+          if (trigger != null && trigger <= _sessionCrashPoint!) {
+            won = true;
+            if (bet != null) {
+              // Credit only the amount based on the trigger multiplier, not the crash multiplier
+              _balance += bet * trigger;
+            }
+            _confettiController.play();
+            _audioPlayer.play(AssetSource('sounds/win.mp3'));
+          }
+        }
+        _recentCrashes.insert(0, _sessionCrashPoint ?? 0);
+        _recentWins.insert(0, won);
+        if (_recentCrashes.length > 10) {
+          _recentCrashes.removeLast();
+          _recentWins.removeLast();
+        }
+
         Future.delayed(const Duration(seconds: 5), () {
-          if (mounted && !_isRunning) {
+          if (mounted && !_isRunning && _autoBetEnabled) {
             _startGame();
           }
         });
@@ -77,7 +108,10 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
   void _startGame() {
     if (_isRunning) return;
 
-    final bet = double.tryParse(_betController.text);
+    final betText = _betController.text.trim();
+    if (betText.isEmpty) return;
+
+    final bet = double.tryParse(betText);
     if (bet == null || bet <= 0 || bet > _balance) {
       SchedulerBinding.instance.addPostFrameCallback((_) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -107,14 +141,18 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
       final bet = double.tryParse(_betController.text);
       if (bet != null) {
         setState(() {
-          _balance += bet * _multiplier;
+          double finalMultiplier = _multiplier;
+          final trigger = double.tryParse(_triggerController.text);
+          if (_autoCashOutEnabled && trigger != null && trigger <= _multiplier) {
+            finalMultiplier = trigger;
+          }
+          // Credit only the amount based on the trigger multiplier, not the crash multiplier
+          _balance += bet * finalMultiplier;
         });
+        _confettiController.play();
+        _audioPlayer.play(AssetSource('sounds/win.mp3'));
       }
 
-      _ticker.stop();
-      setState(() {
-        _isRunning = false;
-      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Cashed out at ${_multiplier}x!')),
       );
@@ -126,6 +164,8 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
     _ticker.dispose();
     _betController.dispose();
     _triggerController.dispose();
+    _confettiController.dispose();
+    _audioPlayer.dispose();
     super.dispose();
   }
 
@@ -156,20 +196,19 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
               ),
             ),
             Expanded(
-              flex: 3,
+              flex: 2,
               child: Stack(
                 alignment: Alignment.center,
                 children: [
-                  // Background color
-                  Positioned.fill(
-                    child: Container(
-                      color: Colors.black,
-                    ),
-                  ),
-                  // XY Axis lines
-                  Positioned.fill(
-                    child: CustomPaint(
-                      painter: _AxisPainter(),
+                  Align(
+                    alignment: Alignment.topCenter,
+                    child: ConfettiWidget(
+                      confettiController: _confettiController,
+                      blastDirectionality: BlastDirectionality.explosive,
+                      shouldLoop: false,
+                      numberOfParticles: 20,
+                      gravity: 0.3,
+                      colors: [Colors.green, Colors.yellow, Colors.cyan],
                     ),
                   ),
                   // Helicopter animation with floating fly motion
@@ -178,7 +217,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                     duration: const Duration(milliseconds: 300),
                     child: AnimatedPadding(
                       padding: EdgeInsets.only(
-                        bottom: 30 + sin(_elapsed) * 10, // simulate up/down flight
+                        bottom: 40 + sin(_elapsed * 3) * 30, // simulate up/down flight
                       ),
                       duration: const Duration(milliseconds: 300),
                       child: Image.asset(
@@ -199,87 +238,135 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                       ),
                     ),
                   ),
+                  Positioned(
+                    bottom: 10,
+                    child: SizedBox(
+                      height: 30,
+                      width: MediaQuery.of(context).size.width,
+                      child: ListView.builder(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: _recentCrashes.length,
+                        itemBuilder: (context, index) {
+                          final crash = _recentCrashes[index];
+                          final won = _recentWins[index];
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: won ? Colors.green : Colors.red,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                '${crash.toStringAsFixed(2)}x',
+                                style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
             Expanded(
-              flex: 2,
+              flex: 3,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                padding: const EdgeInsets.fromLTRB(24, 20, 24, 60),
                 decoration: const BoxDecoration(
                   color: Color(0xFF1E1E1E),
                   borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
                 ),
-                child: Column(
-                  children: [
-                    TextField(
-                      controller: _betController,
-                      keyboardType: TextInputType.number,
-                      style: const TextStyle(color: Colors.white, fontSize: 18),
-                      decoration: InputDecoration(
-                        labelText: 'Enter Bet Amount',
-                        labelStyle: const TextStyle(color: Colors.white70, fontSize: 16),
-                        prefixIcon: const Icon(Icons.monetization_on, color: Colors.cyanAccent),
-                        filled: true,
-                        fillColor: Colors.white10,
-                        enabledBorder: OutlineInputBorder(
-                          borderSide: const BorderSide(color: Colors.cyanAccent),
-                          borderRadius: BorderRadius.circular(15),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderSide: const BorderSide(color: Colors.cyan),
-                          borderRadius: BorderRadius.circular(15),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    return SingleChildScrollView(
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            CheckboxListTile(
+                              value: _autoBetEnabled,
+                              onChanged: (val) {
+                                setState(() => _autoBetEnabled = val ?? false);
+                              },
+                              title: const Text('Auto Bet', style: TextStyle(color: Colors.white)),
+                              controlAffinity: ListTileControlAffinity.leading,
+                              contentPadding: EdgeInsets.zero,
+                            ),
+                            TextField(
+                              controller: _betController,
+                              keyboardType: TextInputType.number,
+                              style: const TextStyle(color: Colors.white, fontSize: 18),
+                              decoration: InputDecoration(
+                                labelText: 'Enter Bet Amount',
+                                labelStyle: const TextStyle(color: Colors.white70, fontSize: 16),
+                                prefixIcon: const Icon(Icons.monetization_on, color: Colors.cyanAccent),
+                                filled: true,
+                                fillColor: Colors.white10,
+                                enabledBorder: OutlineInputBorder(
+                                  borderSide: const BorderSide(color: Colors.cyanAccent),
+                                  borderRadius: BorderRadius.circular(15),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderSide: const BorderSide(color: Colors.cyan),
+                                  borderRadius: BorderRadius.circular(15),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            TextField(
+                              controller: _triggerController,
+                              keyboardType: TextInputType.number,
+                              style: const TextStyle(color: Colors.white, fontSize: 18),
+                              decoration: InputDecoration(
+                                labelText: 'Auto Cashout Multiplier (e.g. 1.20)',
+                                labelStyle: const TextStyle(color: Colors.white70, fontSize: 16),
+                                prefixIcon: const Icon(Icons.auto_mode, color: Colors.amberAccent),
+                                filled: true,
+                                fillColor: Colors.white10,
+                                enabledBorder: OutlineInputBorder(
+                                  borderSide: const BorderSide(color: Colors.amberAccent),
+                                  borderRadius: BorderRadius.circular(15),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderSide: const BorderSide(color: Colors.amber),
+                                  borderRadius: BorderRadius.circular(15),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceAround,
+                              children: [
+                                ElevatedButton(
+                                  onPressed: _startGame,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.green,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                    padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 14),
+                                    textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                                  ),
+                                  child: const Text('Start'),
+                                ),
+                                ElevatedButton(
+                                  onPressed: _cashOut,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.orange,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                    padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 14),
+                                    textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                                  ),
+                                  child: const Text('Cash Out'),
+                                ),
+                              ],
+                            )
+                          ],
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _triggerController,
-                      keyboardType: TextInputType.number,
-                      style: const TextStyle(color: Colors.white, fontSize: 18),
-                      decoration: InputDecoration(
-                        labelText: 'Auto Cashout Multiplier (e.g. 1.20)',
-                        labelStyle: const TextStyle(color: Colors.white70, fontSize: 16),
-                        prefixIcon: const Icon(Icons.auto_mode, color: Colors.amberAccent),
-                        filled: true,
-                        fillColor: Colors.white10,
-                        enabledBorder: OutlineInputBorder(
-                          borderSide: const BorderSide(color: Colors.amberAccent),
-                          borderRadius: BorderRadius.circular(15),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderSide: const BorderSide(color: Colors.amber),
-                          borderRadius: BorderRadius.circular(15),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      children: [
-                        ElevatedButton(
-                          onPressed: _startGame,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                            padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 14),
-                            textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                          ),
-                          child: const Text('Start'),
-                        ),
-                        ElevatedButton(
-                          onPressed: _cashOut,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.orange,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                            padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 14),
-                            textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                          ),
-                          child: const Text('Cash Out'),
-                        ),
-                      ],
-                    )
-                  ],
+                    );
+                  },
                 ),
               ),
             )
