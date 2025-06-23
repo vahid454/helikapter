@@ -21,7 +21,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
   late final Ticker _ticker;
   double _elapsed = 0;
   double? _sessionCrashPoint;
-  double _balance = 10000; // Initial balance
+  double _balance = 1000; // Initial balance
   bool _hasStarted = false;
 
   bool _autoBetEnabled = false;
@@ -70,7 +70,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
             won = true;
             if (bet != null) {
               // Credit only the amount based on the trigger multiplier, not the crash multiplier
-              _balance += bet * trigger;
+             // _balance += bet * trigger;
             }
             _confettiController.play();
             _audioPlayer.play(AssetSource('sounds/win.mp3'));
@@ -196,7 +196,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
               ),
             ),
             Expanded(
-              flex: 2,
+              flex: 5,
               child: Stack(
                 alignment: Alignment.center,
                 children: [
@@ -206,7 +206,9 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                       confettiController: _confettiController,
                       blastDirectionality: BlastDirectionality.explosive,
                       shouldLoop: false,
-                      numberOfParticles: 20,
+                      numberOfParticles: 8,
+                      minimumSize: const Size(4, 4),
+                      maximumSize: const Size(8, 8),
                       gravity: 0.3,
                       colors: [Colors.green, Colors.yellow, Colors.cyan],
                     ),
@@ -271,7 +273,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
               ),
             ),
             Expanded(
-              flex: 3,
+              flex: 5,
               child: Container(
                 padding: const EdgeInsets.fromLTRB(24, 20, 24, 60),
                 decoration: const BoxDecoration(
