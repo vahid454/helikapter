@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:helikapter/screens/game/game_screen.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:helikapter/screens/auth/login_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -81,6 +83,46 @@ class HomeScreen extends StatelessWidget {
         ),
       ),
       backgroundColor: Colors.grey[900],
+      drawer: Drawer(
+        backgroundColor: Colors.grey[900],
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            DrawerHeader(
+              decoration: const BoxDecoration(color: Colors.black87),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  Icon(Icons.account_circle, size: 48, color: Colors.cyanAccent),
+                  SizedBox(height: 12),
+                  Text('Pilot Profile', style: TextStyle(color: Colors.white, fontSize: 18)),
+                ],
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.person, color: Colors.white),
+              title: const Text('Profile', style: TextStyle(color: Colors.white)),
+              onTap: () {},
+            ),
+            ListTile(
+              leading: const Icon(Icons.account_balance_wallet, color: Colors.white),
+              title: const Text('Wallet', style: TextStyle(color: Colors.white)),
+              onTap: () {},
+            ),
+            ListTile(
+              leading: const Icon(Icons.logout, color: Colors.redAccent),
+              title: const Text('Logout', style: TextStyle(color: Colors.redAccent)),
+              onTap: () async {
+                await FirebaseAuth.instance.signOut();
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const LoginScreen()),
+                  (route) => false,
+                );
+              },
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

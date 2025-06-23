@@ -16,6 +16,19 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
   final _auth = FirebaseAuth.instance;
 
+  @override
+  void initState() {
+    super.initState();
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const HomeScreen()),
+        );
+      });
+    }
+  }
+
   void _login() async {
     setState(() {
       _isLoading = true;
