@@ -1,10 +1,30 @@
 import 'package:flutter/material.dart';
 import 'package:helikapter/screens/game/game_screen.dart';
+import 'package:helikapter/screens/wallet/wallet_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:helikapter/screens/auth/login_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final ValueNotifier<int> _walletBalance = ValueNotifier<int>(0);
+
+  @override
+  void initState() {
+    super.initState();
+    _loadWalletBalance();
+  }
+
+  Future<void> _loadWalletBalance() async {
+    final prefs = await SharedPreferences.getInstance();
+    _walletBalance.value = prefs.getInt('wallet_balance') ?? 0;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -53,10 +73,15 @@ class HomeScreen extends StatelessWidget {
                 ],
               ),
               child: Column(
-                children: const [
-                  Text('Your Coins:', style: TextStyle(fontSize: 18, color: Colors.white70)),
-                  SizedBox(height: 8),
-                  Text('1000', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.cyanAccent)),
+                children: [
+                  const Text('Wallet Balance:', style: TextStyle(fontSize: 18, color: Colors.white70)),
+                  const SizedBox(height: 8),
+                  ValueListenableBuilder<int>(
+                    valueListenable: _walletBalance,
+                    builder: (context, value, _) {
+                      return Text('₹$value', style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.cyanAccent));
+                    },
+                  ),
                 ],
               ),
             ),
@@ -107,7 +132,15 @@ class HomeScreen extends StatelessWidget {
             ListTile(
               leading: const Icon(Icons.account_balance_wallet, color: Colors.white),
               title: const Text('Wallet', style: TextStyle(color: Colors.white)),
-              onTap: () {},
+              onTap: () {
+                 debugPrint("Tapped Wallet Menu");
+                 Navigator.pop(context); 
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const WalletScreen()),
+                ).then((_) {
+                  _loadWalletBalance();
+                });
+              },
             ),
             ListTile(
               leading: const Icon(Icons.logout, color: Colors.redAccent),

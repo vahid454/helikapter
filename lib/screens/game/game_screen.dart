@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:confetti/confetti.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class GameScreen extends StatefulWidget {
   const GameScreen({super.key});
@@ -21,7 +22,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
   late final Ticker _ticker;
   double _elapsed = 0;
   double? _sessionCrashPoint;
-  double _balance = 1000; // Initial balance
+  double _balance = 0; // Initial balance set to 0
   bool _hasStarted = false;
 
   bool _autoBetEnabled = false;
@@ -30,12 +31,25 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
 
   late ConfettiController _confettiController;
   final AudioPlayer _audioPlayer = AudioPlayer();
+  bool _hasAutoCashedOut = false; // Prevent repeated auto cash out
 
   @override
   void initState() {
     super.initState();
     _ticker = createTicker(_updateGame);
     _confettiController = ConfettiController(duration: const Duration(seconds: 2));
+    _loadWalletBalance();
+  }
+  Future<void> _loadWalletBalance() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _balance = prefs.getInt('wallet_balance')?.toDouble() ?? 0.0;
+    });
+  }
+
+  Future<void> _updateWalletBalance(double newBalance) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('wallet_balance', newBalance.toInt());
   }
 
   @override
@@ -53,8 +67,14 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
       _multiplier = double.parse((1 + _elapsed * 0.25).toStringAsFixed(2));
 
       final trigger = double.tryParse(_triggerController.text);
-      if (_isRunning && !_isCrashed && _autoCashOutEnabled && trigger != null && _multiplier >= trigger) {
+      if (_isRunning &&
+          !_isCrashed &&
+          _autoCashOutEnabled &&
+          trigger != null &&
+          _multiplier >= trigger &&
+          !_hasAutoCashedOut) {
         _cashOut();
+        _hasAutoCashedOut = true;
       }
 
       if (_multiplier >= (_sessionCrashPoint ?? 0)) {
@@ -68,10 +88,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
           final trigger = double.tryParse(_triggerController.text);
           if (trigger != null && trigger <= _sessionCrashPoint!) {
             won = true;
-            if (bet != null) {
-              // Credit only the amount based on the trigger multiplier, not the crash multiplier
-             // _balance += bet * trigger;
-            }
+            // Credit is handled in _cashOut via auto-cash, so nothing here.
             _confettiController.play();
             _audioPlayer.play(AssetSource('sounds/win.mp3'));
           }
@@ -111,6 +128,14 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
     final betText = _betController.text.trim();
     if (betText.isEmpty) return;
 
+    // Ensure auto cashout is set if auto bet is enabled
+    if (_autoBetEnabled && (_triggerController.text.trim().isEmpty || double.tryParse(_triggerController.text) == null)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Auto Cashout is required for Auto Bet")),
+      );
+      return;
+    }
+
     final bet = double.tryParse(betText);
     if (bet == null || bet <= 0 || bet > _balance) {
       SchedulerBinding.instance.addPostFrameCallback((_) {
@@ -131,32 +156,36 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
       _elapsed = 0;
       _multiplier = 1.0;
       _sessionCrashPoint = generateCrashPoint(_balance);
+      _hasAutoCashedOut = false; // Reset auto cash out guard
     });
-
+    _updateWalletBalance(_balance);
     _ticker.start();
   }
 
   void _cashOut() {
-    if (!_isCrashed && _isRunning) {
-      final bet = double.tryParse(_betController.text);
-      if (bet != null) {
-        setState(() {
-          double finalMultiplier = _multiplier;
-          final trigger = double.tryParse(_triggerController.text);
-          if (_autoCashOutEnabled && trigger != null && trigger <= _multiplier) {
-            finalMultiplier = trigger;
-          }
-          // Credit only the amount based on the trigger multiplier, not the crash multiplier
-          _balance += bet * finalMultiplier;
-        });
-        _confettiController.play();
-        _audioPlayer.play(AssetSource('sounds/win.mp3'));
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Cashed out at ${_multiplier}x!')),
-      );
+    // Prevent repeated cash out
+    if (_isCrashed || !_isRunning) return;
+    if (_hasAutoCashedOut) return;
+    final bet = double.tryParse(_betController.text);
+    if (bet != null) {
+      setState(() {
+        double finalMultiplier = _multiplier;
+        final trigger = double.tryParse(_triggerController.text);
+        if (_autoCashOutEnabled && trigger != null && trigger <= _multiplier) {
+          finalMultiplier = trigger;
+        }
+        // Credit only the amount based on the trigger multiplier, not the crash multiplier
+        _balance += bet * finalMultiplier;
+        _hasAutoCashedOut = true;
+      });
+      _updateWalletBalance(_balance);
+      _confettiController.play();
+      _audioPlayer.play(AssetSource('sounds/win.mp3'));
     }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Cashed out at ${_multiplier}x!')),
+    );
   }
 
   @override
@@ -288,14 +317,40 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            CheckboxListTile(
-                              value: _autoBetEnabled,
-                              onChanged: (val) {
-                                setState(() => _autoBetEnabled = val ?? false);
-                              },
-                              title: const Text('Auto Bet', style: TextStyle(color: Colors.white)),
-                              controlAffinity: ListTileControlAffinity.leading,
-                              contentPadding: EdgeInsets.zero,
+                            // Row with CheckboxListTile and Stop Auto Bet button
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(
+                                  child: CheckboxListTile(
+                                    value: _autoBetEnabled,
+                                    onChanged: (val) {
+                                      setState(() => _autoBetEnabled = val ?? false);
+                                    },
+                                    title: const Text('Auto Bet', style: TextStyle(color: Colors.white)),
+                                    controlAffinity: ListTileControlAffinity.leading,
+                                    contentPadding: EdgeInsets.zero,
+                                  ),
+                                ),
+                                if (_isRunning && _autoBetEnabled)
+                                  Padding(
+                                    padding: const EdgeInsets.only(left: 8.0),
+                                    child: ElevatedButton(
+                                      onPressed: () {
+                                        _cashOut();
+                                        setState(() {
+                                          _autoBetEnabled = false;
+                                        });
+                                      },
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.red,
+                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                        textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                      ),
+                                      child: const Text('Stop'),
+                                    ),
+                                  ),
+                              ],
                             ),
                             TextField(
                               controller: _betController,
@@ -363,7 +418,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                                   child: const Text('Cash Out'),
                                 ),
                               ],
-                            )
+                            ),
                           ],
                         ),
                       ),
