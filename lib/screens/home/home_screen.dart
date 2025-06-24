@@ -39,73 +39,53 @@ class _HomeScreenState extends State<HomeScreen> {
             color: Colors.cyanAccent,
           ),
         ),
-        actions: const [
+        actions: [
           Padding(
-            padding: EdgeInsets.only(right: 12.0),
-            child: Icon(Icons.flight_takeoff, color: Colors.cyanAccent),
-          )
-        ],
-      ),
-      body: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Image.asset('assets/images/airplane.png', width: 120),
-            const SizedBox(height: 24),
-            const Text(
-              'Welcome, Pilot!',
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.black54,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.cyanAccent.withOpacity(0.4),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  const Text('Wallet Balance:', style: TextStyle(fontSize: 18, color: Colors.white70)),
-                  const SizedBox(height: 8),
-                  ValueListenableBuilder<int>(
-                    valueListenable: _walletBalance,
-                    builder: (context, value, _) {
-                      return Text('₹$value', style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.cyanAccent));
-                    },
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 48),
-            ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.cyanAccent,
-                padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 20),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                elevation: 8,
-              ),
-              icon: const Icon(Icons.play_arrow, color: Colors.black),
-              label: const Text(
-                'Start Game',
-                style: TextStyle(color: Colors.black, fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const GameScreen()),
-                );
+            padding: const EdgeInsets.only(right: 8.0),
+            child: ValueListenableBuilder<int>(
+              valueListenable: _walletBalance,
+              builder: (context, value, _) {
+                return Text('₹$value', style: const TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold, fontSize: 16));
               },
             ),
-          ],
-        ),
+          ),
+          const Padding(
+            padding: EdgeInsets.only(right: 12.0),
+            child: Icon(Icons.flight_takeoff, color: Colors.cyanAccent),
+          ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Card(
+            color: Colors.grey[850],
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: ListTile(
+              contentPadding: const EdgeInsets.all(16),
+              leading: Icon(Icons.flight_takeoff, color: Colors.cyanAccent, size: 40),
+              title: const Text('Aviator Game', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+              subtitle: const Text('Tap to play the aviator-style game', style: TextStyle(color: Colors.white70)),
+              onTap: () {
+                Navigator.of(context).push(MaterialPageRoute(builder: (_) => const GameScreen()));
+              },
+            ),
+          ),
+          const SizedBox(height: 16),
+          Card(
+            color: Colors.grey[850],
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: ListTile(
+              contentPadding: const EdgeInsets.all(16),
+              leading: Icon(Icons.sports_basketball, color: Colors.amberAccent, size: 40),
+              title: const Text('Balloon Game', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+              subtitle: const Text('Tap to play the upcoming balloon game', style: TextStyle(color: Colors.white70)),
+              onTap: () {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Balloon game coming soon!')));
+              },
+            ),
+          ),
+        ],
       ),
       backgroundColor: Colors.grey[900],
       drawer: Drawer(
