@@ -13,6 +13,18 @@ class GameScreen extends StatefulWidget {
 }
 
 class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateMixin {
+  // Returns color based on crash multiplier value
+  Color getCrashColor(double value) {
+    if (value < 1.0) return Colors.red;
+    if (value < 2.0) return Colors.redAccent.shade100;
+    if (value < 3.0) return Colors.orangeAccent.shade100;
+    if (value < 5.0) return Colors.yellowAccent.shade100;
+    if (value < 10.0) return Colors.lightGreen.shade200;
+    if (value < 20.0) return Colors.greenAccent.shade100;
+    if (value < 50.0) return Colors.greenAccent.shade200;
+    return Colors.greenAccent.shade400;
+  }
+  bool _isPlayerInGame = false;
   double _multiplier = 1.0;
   bool _isCrashed = false;
   bool _isRunning = false;
@@ -35,12 +47,19 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
 
   String _countdownText = '';
 
+  // Track if user wants to join next round after clicking Start during countdown
+  bool _joinNextRound = false;
+
   @override
   void initState() {
     super.initState();
     _ticker = createTicker(_updateGame);
     _confettiController = ConfettiController(duration: const Duration(seconds: 2));
     _loadWalletBalance();
+     // Start game immediately
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _startGame();
+    });
   }
   Future<void> _loadWalletBalance() async {
     final prefs = await SharedPreferences.getInstance();
@@ -52,15 +71,6 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
   Future<void> _updateWalletBalance(double newBalance) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('wallet_balance', newBalance.toInt());
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (!_hasStarted) {
-      _startGame();
-      _hasStarted = true;
-    }
   }
 
   void _updateGame(Duration elapsed) {
@@ -80,6 +90,8 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
       }
 
       if (_multiplier >= (_sessionCrashPoint ?? 0)) {
+        if (_hasAutoCashedOut) return; // Don't crash again if already cashed out
+
         _isCrashed = true;
         _isRunning = false;
         _ticker.stop();
@@ -114,15 +126,23 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
         }
 
         Future.delayed(const Duration(seconds: 5), () {
-          if (mounted && !_isRunning && _autoBetEnabled) {
+          if (mounted && !_isRunning) {
             setState(() {
               _countdownText = '';
+              _isCrashed = false;
             });
+
+            // If user queued to join next round, apply balance deduction here
+            if (_joinNextRound) {
+              final bet = double.tryParse(_betController.text);
+              if (bet != null && bet > 0 && bet <= _balance) {
+                _balance -= bet;
+                _updateWalletBalance(_balance);
+                _isPlayerInGame = true;
+              }
+            }
+
             _startGame();
-          } else if (mounted && !_isRunning) {
-            setState(() {
-              _countdownText = '';
-            });
           }
         });
       }
@@ -130,78 +150,98 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
   }
 
   double generateCrashPoint(double currentBalance) {
-    final random = Random();
-    final base = (1 / (1 - random.nextDouble())).clamp(1.0, 20.0);
+    final random = Random.secure();
+    final roll = random.nextDouble();
 
-    if (currentBalance > 15000) {
-      return double.parse(min(base, 2.5).toStringAsFixed(2));
-    } else if (currentBalance < 100) {
-      return double.parse(max(base, 2.0).toStringAsFixed(2));
+    if (roll < 0.5) {
+      // 50% chance for crash between 0x and 1.0x (including instant busts)
+      return double.parse((roll * 1.0).toStringAsFixed(2));
+    } else if (roll < 0.8) {
+      // 30% chance for crash between 1.01x and 2.0x
+      final innerRoll = Random.secure().nextDouble();
+      final crash = 1.01 + innerRoll * (2.0 - 1.01);
+      return double.parse(crash.toStringAsFixed(2));
+    } else {
+      // 20% chance for crash between 2.01x and 100.0x
+      final innerRoll = Random.secure().nextDouble();
+      final crash = 2.01 + innerRoll * (100.0 - 2.01);
+      return double.parse(crash.toStringAsFixed(2));
     }
-
-    return double.parse(base.toStringAsFixed(2));
   }
-
+    
   void _startGame() {
-    if (_isRunning) return;
+    final bet = double.tryParse(_betController.text);
+    final trigger = double.tryParse(_triggerController.text);
+    final hasValidBet = bet != null && bet > 0 && bet <= _balance;
 
-    final betText = _betController.text.trim();
-    if (betText.isEmpty) return;
-
-    // Ensure auto cashout is set if auto bet is enabled
-    if (_autoBetEnabled && (_triggerController.text.trim().isEmpty || double.tryParse(_triggerController.text) == null)) {
+    if (_autoBetEnabled && (trigger == null || trigger <= 1)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Auto Cashout is required for Auto Bet")),
       );
       return;
     }
 
-    final bet = double.tryParse(betText);
-    if (bet == null || bet <= 0 || bet > _balance) {
-      SchedulerBinding.instance.addPostFrameCallback((_) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Invalid or insufficient bet amount!')),
-        );
-      });
+    _autoCashOutEnabled = trigger != null && trigger > 1;
+
+    if (_isRunning) {
+      if (hasValidBet) {
+        _joinNextRound = true;
+        _isPlayerInGame = false;
+      }
       return;
     }
 
-    final trigger = double.tryParse(_triggerController.text);
-    _autoCashOutEnabled = trigger != null && trigger > 1;
+    if (_isCrashed) {
+      if (hasValidBet) {
+        _joinNextRound = true;
+        _isPlayerInGame = true;
+      }
+      return;
+    }
+
+    if (hasValidBet) {
+      _balance -= bet!;
+      _updateWalletBalance(_balance);
+      _isPlayerInGame = true;
+    }
 
     setState(() {
-      _balance -= bet;
       _isCrashed = false;
       _isRunning = true;
       _elapsed = 0;
       _multiplier = 1.0;
       _sessionCrashPoint = generateCrashPoint(_balance);
-      _hasAutoCashedOut = false; // Reset auto cash out guard
+      _hasAutoCashedOut = false;
+      _joinNextRound = false;
     });
-    _updateWalletBalance(_balance);
+
     _ticker.start();
   }
 
   void _cashOut() {
-    // Prevent repeated cash out
-    if (_isCrashed || !_isRunning) return;
-    if (_hasAutoCashedOut) return;
+    if (_isCrashed || !_isRunning || _hasAutoCashedOut || !_isPlayerInGame) return;
+
     final bet = double.tryParse(_betController.text);
-    if (bet != null) {
-      setState(() {
-        double finalMultiplier = _multiplier;
-        final trigger = double.tryParse(_triggerController.text);
-        if (_autoCashOutEnabled && trigger != null && trigger <= _multiplier) {
-          finalMultiplier = trigger;
-        }
-        // Credit only the amount based on the trigger multiplier, not the crash multiplier
-        _balance += bet * finalMultiplier;
-        _hasAutoCashedOut = true;
-      });
-      _updateWalletBalance(_balance);
-      _confettiController.play();
-      _audioPlayer.play(AssetSource('sounds/win.mp3'));
-    }
+    final hasValidBet = bet != null && bet > 0;
+    if (!hasValidBet) return;
+
+    setState(() {
+      double finalMultiplier = _multiplier;
+      final trigger = double.tryParse(_triggerController.text);
+      if (_autoCashOutEnabled && trigger != null && trigger <= _multiplier) {
+        finalMultiplier = trigger;
+      }
+      _balance += bet! * finalMultiplier;
+      _hasAutoCashedOut = true;
+      _isRunning = false;
+      _isCrashed = true;
+      _isPlayerInGame = false;
+      _autoBetEnabled = false;
+    });
+
+    _updateWalletBalance(_balance);
+    _confettiController.play();
+    _audioPlayer.play(AssetSource('sounds/win.mp3'));
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Cashed out at ${_multiplier}x!')),
@@ -283,7 +323,9 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                     child: Column(
                       children: [
                         Text(
-                          _isCrashed ? '💥 Crashed at $_multiplier x' : '${_multiplier.toStringAsFixed(2)}x',
+                          (_isCrashed && !_hasAutoCashedOut)
+                              ? '💥 Crashed at $_multiplier x'
+                              : '${_multiplier.toStringAsFixed(2)}x',
                           style: TextStyle(
                             fontSize: 36,
                             fontWeight: FontWeight.bold,
@@ -315,18 +357,18 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                         itemCount: _recentCrashes.length,
                         itemBuilder: (context, index) {
                           final crash = _recentCrashes[index];
-                          final won = _recentWins[index];
+                          final color = getCrashColor(crash);
                           return Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 4),
                             child: Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                               decoration: BoxDecoration(
-                                color: won ? Colors.green : Colors.red,
+                                color: color,
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
                                 '${crash.toStringAsFixed(2)}x',
-                                style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                                style: const TextStyle(color: Colors.black, fontSize: 12, fontWeight: FontWeight.w600),
                               ),
                             ),
                           );
@@ -376,6 +418,8 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                                         _cashOut();
                                         setState(() {
                                           _autoBetEnabled = false;
+                                          _isRunning = false;
+                                          _isCrashed = true;
                                         });
                                       },
                                       style: ElevatedButton.styleFrom(
