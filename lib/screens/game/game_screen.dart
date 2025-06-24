@@ -33,6 +33,8 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
   final AudioPlayer _audioPlayer = AudioPlayer();
   bool _hasAutoCashedOut = false; // Prevent repeated auto cash out
 
+  String _countdownText = '';
+
   @override
   void initState() {
     super.initState();
@@ -100,9 +102,27 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
           _recentWins.removeLast();
         }
 
+        // Schedule countdown label update without showing SnackBar
+        for (int i = 4; i >= 1; i--) {
+          Future.delayed(Duration(seconds: 5 - i), () {
+            if (mounted && !_isRunning) {
+              setState(() {
+                _countdownText = 'Next game in $i sec';
+              });
+            }
+          });
+        }
+
         Future.delayed(const Duration(seconds: 5), () {
           if (mounted && !_isRunning && _autoBetEnabled) {
+            setState(() {
+              _countdownText = '';
+            });
             _startGame();
+          } else if (mounted && !_isRunning) {
+            setState(() {
+              _countdownText = '';
+            });
           }
         });
       }
@@ -260,13 +280,29 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                   // Multiplier / crash indicator
                   Positioned(
                     top: 40,
-                    child: Text(
-                      _isCrashed ? '💥 Crashed at $_multiplier x' : '${_multiplier.toStringAsFixed(2)}x',
-                      style: TextStyle(
-                        fontSize: 36,
-                        fontWeight: FontWeight.bold,
-                        color: _isCrashed ? Colors.red : Colors.cyanAccent,
-                      ),
+                    child: Column(
+                      children: [
+                        Text(
+                          _isCrashed ? '💥 Crashed at $_multiplier x' : '${_multiplier.toStringAsFixed(2)}x',
+                          style: TextStyle(
+                            fontSize: 36,
+                            fontWeight: FontWeight.bold,
+                            color: _isCrashed ? Colors.red : Colors.cyanAccent,
+                          ),
+                        ),
+                        if (_countdownText.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 10),
+                            child: Text(
+                              _countdownText,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500,
+                                color: Colors.white70,
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                   Positioned(
@@ -332,7 +368,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                                     contentPadding: EdgeInsets.zero,
                                   ),
                                 ),
-                                if (_isRunning && _autoBetEnabled)
+                                if (_autoBetEnabled)
                                   Padding(
                                     padding: const EdgeInsets.only(left: 8.0),
                                     child: ElevatedButton(
@@ -344,7 +380,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                                       },
                                       style: ElevatedButton.styleFrom(
                                         backgroundColor: Colors.red,
-                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
                                         textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                                       ),
                                       child: const Text('Stop'),
@@ -405,7 +441,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                                     padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 14),
                                     textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                                   ),
-                                  child: const Text('Start'),
+                                  child: Text(_autoBetEnabled ? 'Start Auto Bet' : 'Start'),
                                 ),
                                 ElevatedButton(
                                   onPressed: _cashOut,
